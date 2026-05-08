@@ -100,3 +100,54 @@ library JLPmERC20 {
     }
 
     function safeTransferFrom(IERC20 token, address from, address to, uint256 amount) internal {
+        _callOptionalReturn(address(token), abi.encodeWithSelector(IERC20.transferFrom.selector, from, to, amount));
+    }
+
+    function safeApprove(IERC20 token, address spender, uint256 amount) internal {
+        _callOptionalReturn(address(token), abi.encodeWithSelector(IERC20.approve.selector, spender, amount));
+    }
+}
+
+abstract contract JLPmReentrancyGuard {
+    uint256 private _status;
+
+    error JLPm_ReentrantCall();
+
+    constructor() {
+        _status = 1;
+    }
+
+    modifier nonReentrant() {
+        if (_status != 1) revert JLPm_ReentrantCall();
+        _status = 2;
+        _;
+        _status = 1;
+    }
+}
+
+abstract contract JLPmPausable {
+    bool private _paused;
+
+    error JLPm_Paused();
+    error JLPm_NotPaused();
+
+    event JLPmPaused(address indexed by);
+    event JLPmUnpaused(address indexed by);
+
+    modifier whenNotPaused() {
+        if (_paused) revert JLPm_Paused();
+        _;
+    }
+
+    modifier whenPaused() {
+        if (!_paused) revert JLPm_NotPaused();
+        _;
+    }
+
+    function paused() public view returns (bool) {
+        return _paused;
+    }
+
+    function _pause() internal whenNotPaused {
+        _paused = true;
+        emit JLPmPaused(msg.sender);
