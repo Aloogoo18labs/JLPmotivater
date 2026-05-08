@@ -151,3 +151,54 @@ abstract contract JLPmPausable {
     function _pause() internal whenNotPaused {
         _paused = true;
         emit JLPmPaused(msg.sender);
+    }
+
+    function _unpause() internal whenPaused {
+        _paused = false;
+        emit JLPmUnpaused(msg.sender);
+    }
+}
+
+abstract contract JLPmAccess {
+    mapping(bytes32 => mapping(address => bool)) private _role;
+
+    bytes32 internal constant ROLE_ADMIN = keccak256("JLPmotivater.ROLE_ADMIN");
+    bytes32 internal constant ROLE_KEEPER = keccak256("JLPmotivater.ROLE_KEEPER");
+    bytes32 internal constant ROLE_SIGNALER = keccak256("JLPmotivater.ROLE_SIGNALER");
+    bytes32 internal constant ROLE_RISK = keccak256("JLPmotivater.ROLE_RISK");
+
+    error JLPm_AccessDenied(bytes32 role, address who);
+    error JLPm_RoleAlreadySet(bytes32 role, address who);
+    error JLPm_RoleNotSet(bytes32 role, address who);
+
+    event JLPmRoleGranted(bytes32 indexed role, address indexed who, address indexed by);
+    event JLPmRoleRevoked(bytes32 indexed role, address indexed who, address indexed by);
+
+    modifier onlyRole(bytes32 r) {
+        if (!_role[r][msg.sender]) revert JLPm_AccessDenied(r, msg.sender);
+        _;
+    }
+
+    function hasRole(bytes32 r, address who) public view returns (bool) {
+        return _role[r][who];
+    }
+
+    function _grantRole(bytes32 r, address who) internal {
+        if (_role[r][who]) revert JLPm_RoleAlreadySet(r, who);
+        _role[r][who] = true;
+        emit JLPmRoleGranted(r, who, msg.sender);
+    }
+
+    function _revokeRole(bytes32 r, address who) internal {
+        if (!_role[r][who]) revert JLPm_RoleNotSet(r, who);
+        _role[r][who] = false;
+        emit JLPmRoleRevoked(r, who, msg.sender);
+    }
+}
+
+library JLPmECDSA {
+    error JLPmECDSA_InvalidSignature();
+    error JLPmECDSA_InvalidS();
+    error JLPmECDSA_InvalidV();
+
+    function recover(bytes32 digest, bytes memory signature) internal pure returns (address) {
