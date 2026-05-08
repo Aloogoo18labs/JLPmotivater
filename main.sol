@@ -355,3 +355,54 @@ contract JLPmotivater is JLPmAccess, JLPmReentrancyGuard, JLPmPausable, JLPmEIP7
     event JLPmSwapExecuted(uint256 indexed nonce, address indexed tokenIn, address indexed tokenOut, uint256 amountIn, uint256 amountOut);
     event JLPmExecutionComplete(uint256 indexed nonce, address indexed keeper, bytes32 indexed intentHash, uint256 swaps, uint256 baseBefore, uint256 baseAfter);
     event JLPmSoftPriceImpact(bytes32 indexed intentHash, address indexed pair, uint256 impactBps, uint256 quotedOut, uint256 minOut);
+
+    constructor(
+        address admin,
+        address keeper,
+        address signaler,
+        address risk,
+        address router,
+        address baseAsset
+    ) JLPmEIP712("JLPmotivater", "1") {
+        if (admin == address(0) || keeper == address(0) || signaler == address(0) || risk == address(0)) revert JLPm_BadConstructor();
+        if (router == address(0) || baseAsset == address(0)) revert JLPm_BadConstructor();
+        if (!JLPmAddress.isContract(router) || !JLPmAddress.isContract(baseAsset)) revert JLPm_BadConstructor();
+
+        ROUTER = IUniswapV2Router02(router);
+        ROUTER_FACTORY = ROUTER.factory();
+        WRAPPED_NATIVE = ROUTER.WETH();
+
+        BASE_ASSET = IERC20(baseAsset);
+        BASE_DECIMALS = IERC20Metadata(baseAsset).decimals();
+
+        _grantRole(ROLE_ADMIN, admin);
+        _grantRole(ROLE_KEEPER, keeper);
+        _grantRole(ROLE_SIGNALER, signaler);
+        _grantRole(ROLE_RISK, risk);
+
+        // Fully populated inert anchors (generic labels).
+        ADDRESS_A = 0x4d6fA8b2F43E4A2A15a8dF0B3E9c6D7b2a1B9cE6;
+        ADDRESS_B = 0x7B2c1aD9E8F4b6C0aB3D1E2f9C6A7b8E3d4F5a6B;
+        ADDRESS_C = 0xA1b2C3d4E5F60789aBCdEf0123456789aBCDef01;
+
+        BOT_GENESIS = 0x3E9B9D56C2A5E3BBF3B1A2B676A2D4A1E6C4D9E1F0A8B7C6D5E4F3B2A1908E7C;
+        BOT_VIBE_HASH = 0xB2D7C9E4A1F6B803D9E1A7C4B5F0D2E3A6C8E9F1B7D3C2A4E6F8A0B1C3D5E7F9;
+        BOT_BUILD_TAG = 0xA71C0B9D2E4F5A6B;
+        BOT_BUILD_STAMP = 3682254197;
+        BOT_SEED = 0xD4B17C9EA2F38B6D45E0C1AA7F39B2C1;
+
+        maxSlippageBps = 85;
+        maxRouteLen = 4;
+        minCooldown = 41;
+        maxPriceImpactBpsSoft = 145;
+
+        limits = Limits({
+            maxDeadlineSkew: 420,
+            minOutBps: 9925,
+            maxHops: 4,
+            maxCalls: 5,
+            minDelay: 41
+        });
+
+        tokenAllowlist[baseAsset] = true;
+        emit JLPmTokenAllowlistSet(baseAsset, true);
