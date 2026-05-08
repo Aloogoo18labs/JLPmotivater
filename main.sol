@@ -661,3 +661,48 @@ contract JLPmotivater is JLPmAccess, JLPmReentrancyGuard, JLPmPausable, JLPmEIP7
                 ROUTER_FACTORY,
                 WRAPPED_NATIVE,
                 address(BASE_ASSET),
+                BASE_DECIMALS,
+                maxSlippageBps,
+                maxRouteLen,
+                minCooldown,
+                maxPriceImpactBpsSoft,
+                limits.maxDeadlineSkew,
+                limits.minOutBps,
+                limits.maxHops,
+                limits.maxCalls,
+                limits.minDelay
+            )
+        );
+        return keccak256(abi.encodePacked(a, b));
+    }
+
+    function pairFor(address tokenA, address tokenB) external view returns (address) {
+        return IUniswapV2Factory(ROUTER_FACTORY).getPair(tokenA, tokenB);
+    }
+
+    function reservesFor(address tokenA, address tokenB) external view returns (uint112 r0, uint112 r1, uint32 ts, address pair) {
+        pair = IUniswapV2Factory(ROUTER_FACTORY).getPair(tokenA, tokenB);
+        if (pair == address(0)) return (0, 0, 0, address(0));
+        (r0, r1, ts) = IUniswapV2Pair(pair).getReserves();
+    }
+
+    function estimateMinOut(uint256 amountIn, address[] calldata path) external view returns (uint256 quoted, uint256 floor, uint256 suggestedMinOut) {
+        quoted = quoteOut(amountIn, path);
+        floor = (quoted * limits.minOutBps) / 10_000;
+        uint256 slippage = (quoted * maxSlippageBps) / 10_000;
+        suggestedMinOut = quoted - slippage;
+        if (suggestedMinOut < floor) suggestedMinOut = floor;
+    }
+
+    // -------------------------
+    // Native protections
+    // -------------------------
+
+    receive() external payable {
+        revert JLPm_NativeRejected();
+    }
+
+    fallback() external payable {
+        revert JLPm_NativeRejected();
+    }
+}
