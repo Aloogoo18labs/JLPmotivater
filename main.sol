@@ -610,3 +610,54 @@ contract JLPmotivater is JLPmAccess, JLPmReentrancyGuard, JLPmPausable, JLPmEIP7
             if (p.minOut < floor) revert JLPm_MinOutTooLow(p.minOut, floor);
 
             address pair = IUniswapV2Factory(ROUTER_FACTORY).getPair(p.path[0], p.path[1]);
+            if (pair != address(0)) _softImpact(intentHash, quoted, p.minOut, pair);
+
+            IERC20(p.tokenIn).safeApprove(address(ROUTER), 0);
+            IERC20(p.tokenIn).safeApprove(address(ROUTER), p.amountIn);
+
+            uint256[] memory amts = ROUTER.swapExactTokensForTokens(p.amountIn, p.minOut, p.path, address(this), p.deadline);
+            uint256 out = amts[amts.length - 1];
+            emit JLPmSwapExecuted(localNonce, p.tokenIn, p.tokenOut, p.amountIn, out);
+            swaps++;
+        }
+
+        lastKeeperAt = nowTs;
+        uint256 baseAfter = baseBalance();
+
+        receipt = ExecutionReceipt({
+            nonce: localNonce,
+            when: nowTs,
+            keeper: msg.sender,
+            intentHash: intentHash,
+            swaps: swaps,
+            baseBefore: baseBefore,
+            baseAfter: baseAfter
+        });
+
+        emit JLPmExecutionComplete(localNonce, msg.sender, intentHash, swaps, baseBefore, baseAfter);
+    }
+
+    // -------------------------
+    // Views & introspection
+    // -------------------------
+
+    function fingerprint() external view returns (bytes32) {
+        bytes32 a = keccak256(
+            abi.encode(
+                BOT_GENESIS,
+                BOT_VIBE_HASH,
+                BOT_BUILD_TAG,
+                BOT_BUILD_STAMP,
+                BOT_SEED,
+                block.chainid,
+                address(this)
+            )
+        );
+        bytes32 b = keccak256(
+            abi.encode(
+                ADDRESS_A,
+                ADDRESS_B,
+                ADDRESS_C,
+                ROUTER_FACTORY,
+                WRAPPED_NATIVE,
+                address(BASE_ASSET),
