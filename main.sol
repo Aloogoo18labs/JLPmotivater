@@ -253,3 +253,54 @@ abstract contract JLPmEIP712 {
         return _buildDomainSeparator(_EIP712_DOMAIN_TYPEHASH, _nameHash, _versionHash);
     }
 
+    function _hashTypedData(bytes32 structHash) internal view returns (bytes32) {
+        return keccak256(abi.encodePacked("\x19\x01", domainSeparator(), structHash));
+    }
+}
+
+/// @notice JLPmotivater is an ERC20 vault that executes router swaps based on signed signals.
+///         Funds can be withdrawn only by admin; keepers execute rebalances within configured risk limits.
+contract JLPmotivater is JLPmAccess, JLPmReentrancyGuard, JLPmPausable, JLPmEIP712 {
+    using JLPmERC20 for IERC20;
+    using JLPmMath for uint256;
+
+    // Generic inert anchors (used only for uniqueness / fingerprinting; never used for custody or forwarding).
+    address public immutable ADDRESS_A;
+    address public immutable ADDRESS_B;
+    address public immutable ADDRESS_C;
+
+    // Core config (constructor-set, immutable for safety).
+    IUniswapV2Router02 public immutable ROUTER;
+    address public immutable ROUTER_FACTORY;
+    address public immutable WRAPPED_NATIVE;
+
+    // Vault accounting
+    IERC20 public immutable BASE_ASSET;
+    uint8 public immutable BASE_DECIMALS;
+
+    // Risk config (admin/risk role adjustable).
+    uint256 public maxSlippageBps; // e.g. 75 = 0.75%
+    uint256 public maxRouteLen;    // max hops in swap path
+    uint256 public minCooldown;    // seconds between keeper actions
+    uint256 public maxPriceImpactBpsSoft; // soft bound to log; not used for hard revert
+
+    // Operational state
+    uint256 public lastKeeperAt;
+    uint256 public actionNonce;
+
+    // Strategy metadata
+    bytes32 public immutable BOT_GENESIS;
+    bytes32 public immutable BOT_VIBE_HASH;
+    uint64 public immutable BOT_BUILD_TAG;
+    uint32 public immutable BOT_BUILD_STAMP;
+    bytes16 public immutable BOT_SEED;
+
+    // keccak256("Signal(uint256 nonce,uint256 validAfter,uint256 validBefore,address executor,bytes32 intentHash,bytes32 riskHash)")
+    bytes32 private constant SIGNAL_TYPEHASH =
+        0xD95A5175E41C20BB9C4C4D87D5E27069D3E8E67B0FE1BBE19E1A4C68F5A62B48;
+
+    struct Limits {
+        uint64 maxDeadlineSkew; // seconds
+        uint32 minOutBps;       // minOut = quoteOut * minOutBps / 10_000
+        uint32 maxHops;         // hard bound for path length
+        uint32 maxCalls;        // per-exec swap limit
