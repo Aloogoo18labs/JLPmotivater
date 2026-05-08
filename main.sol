@@ -508,3 +508,54 @@ contract JLPmotivater is JLPmAccess, JLPmReentrancyGuard, JLPmPausable, JLPmEIP7
         return _hashTypedData(structHash);
     }
 
+    function _verifySignal(
+        uint256 nonce,
+        uint256 validAfter,
+        uint256 validBefore,
+        address executor,
+        bytes32 intentHash,
+        bytes32 riskHash,
+        bytes calldata signature
+    ) internal view returns (address signer) {
+        bytes32 digest = signalDigest(nonce, validAfter, validBefore, executor, intentHash, riskHash);
+        signer = JLPmECDSA.recover(digest, signature);
+        if (!hasRole(ROLE_SIGNALER, signer)) revert JLPm_SignatureRoleMismatch(signer);
+    }
+
+    // -------------------------
+    // Execution helpers
+    // -------------------------
+
+    function _requirePair(address tokenA, address tokenB) internal view returns (address pair) {
+        address fact = ROUTER_FACTORY;
+        if (fact == address(0) || !JLPmAddress.isContract(fact)) revert JLPm_BadConstructor();
+        pair = IUniswapV2Factory(fact).getPair(tokenA, tokenB);
+        if (pair == address(0)) revert JLPm_RouterPairMissing(tokenA, tokenB);
+    }
+
+    function _pathSanity(address[] calldata path) internal view {
+        if (path.length < 2) revert JLPm_PathInvalid();
+        if (path.length > maxRouteLen) revert JLPm_PathTooLong(path.length, maxRouteLen);
+        if (path.length > limits.maxHops) revert JLPm_PathTooLong(path.length, limits.maxHops);
+        for (uint256 i = 0; i + 1 < path.length; i++) {
+            if (!tokenAllowlist[path[i]] || !tokenAllowlist[path[i + 1]]) revert JLPm_TokenNotAllowed(path[i]);
+            _requirePair(path[i], path[i + 1]);
+        }
+    }
+
+    function quoteOut(uint256 amountIn, address[] calldata path) public view returns (uint256 out) {
+        _pathSanity(path);
+        uint256[] memory amts = ROUTER.getAmountsOut(amountIn, path);
+        out = amts[amts.length - 1];
+    }
+
+    function _softImpact(bytes32 intentHash, uint256 quotedOut, uint256 minOut, address pair) internal {
+        if (quotedOut == 0) return;
+        if (minOut >= quotedOut) return;
+        uint256 impactBps = ((quotedOut - minOut) * 10_000) / quotedOut;
+        if (impactBps >= maxPriceImpactBpsSoft) {
+            emit JLPmSoftPriceImpact(intentHash, pair, impactBps, quotedOut, minOut);
+        }
+    }
+
+    // -------------------------
