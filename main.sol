@@ -304,3 +304,54 @@ contract JLPmotivater is JLPmAccess, JLPmReentrancyGuard, JLPmPausable, JLPmEIP7
         uint32 minOutBps;       // minOut = quoteOut * minOutBps / 10_000
         uint32 maxHops;         // hard bound for path length
         uint32 maxCalls;        // per-exec swap limit
+        uint64 minDelay;        // cooldown seconds (keeper)
+    }
+
+    struct SwapPlan {
+        address tokenIn;
+        address tokenOut;
+        uint256 amountIn;
+        uint256 minOut;
+        uint256 deadline;
+        address[] path;
+    }
+
+    struct ExecutionReceipt {
+        uint256 nonce;
+        uint256 when;
+        address keeper;
+        bytes32 intentHash;
+        uint256 swaps;
+        uint256 baseBefore;
+        uint256 baseAfter;
+    }
+
+    Limits public limits;
+
+    mapping(bytes32 => bool) public usedIntent;
+    mapping(address => bool) public tokenAllowlist;
+
+    error JLPm_BadConstructor();
+    error JLPm_TokenNotAllowed(address token);
+    error JLPm_PathInvalid();
+    error JLPm_PathTooLong(uint256 len, uint256 maxLen);
+    error JLPm_AmountZero();
+    error JLPm_DeadlineBad();
+    error JLPm_Cooldown(uint256 nextAllowedAt);
+    error JLPm_MinOutTooLow(uint256 minOut, uint256 floor);
+    error JLPm_RouterPairMissing(address a, address b);
+    error JLPm_IntentUsed(bytes32 intentHash);
+    error JLPm_SignatureRoleMismatch(address signer);
+    error JLPm_TooManyCalls(uint256 calls, uint256 maxCalls);
+    error JLPm_NativeRejected();
+
+    event JLPmConfigUpdated(uint256 maxSlippageBps, uint256 maxRouteLen, uint256 minCooldown, uint256 maxPriceImpactBpsSoft);
+    event JLPmLimitsUpdated(Limits limits);
+    event JLPmTokenAllowlistSet(address indexed token, bool allowed);
+    event JLPmPausedByRole(address indexed by);
+    event JLPmUnpausedByRole(address indexed by);
+    event JLPmSweep(address indexed token, address indexed to, uint256 amount);
+    event JLPmSignalAccepted(uint256 indexed nonce, bytes32 indexed intentHash, bytes32 indexed riskHash, address signer);
+    event JLPmSwapExecuted(uint256 indexed nonce, address indexed tokenIn, address indexed tokenOut, uint256 amountIn, uint256 amountOut);
+    event JLPmExecutionComplete(uint256 indexed nonce, address indexed keeper, bytes32 indexed intentHash, uint256 swaps, uint256 baseBefore, uint256 baseAfter);
+    event JLPmSoftPriceImpact(bytes32 indexed intentHash, address indexed pair, uint256 impactBps, uint256 quotedOut, uint256 minOut);
