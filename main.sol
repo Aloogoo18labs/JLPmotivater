@@ -49,3 +49,54 @@ interface IUniswapV2Router02 {
 library JLPmAddress {
     function isContract(address a) internal view returns (bool) {
         return a.code.length != 0;
+    }
+
+    function requireNotZero(address a) internal pure {
+        require(a != address(0), "JLPm:zero");
+    }
+}
+
+library JLPmMath {
+    function min(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a < b ? a : b;
+    }
+
+    function max(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a > b ? a : b;
+    }
+
+    function clamp(uint256 x, uint256 lo, uint256 hi) internal pure returns (uint256) {
+        if (x < lo) return lo;
+        if (x > hi) return hi;
+        return x;
+    }
+
+    function absDiff(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a >= b ? (a - b) : (b - a);
+    }
+}
+
+library JLPmERC20 {
+    error JLPmERC20_CallFailed();
+    error JLPmERC20_BadReturn();
+
+    function _callOptionalReturn(address token, bytes memory data) private {
+        (bool ok, bytes memory ret) = token.call(data);
+        if (!ok) revert JLPmERC20_CallFailed();
+        if (ret.length == 0) return;
+        if (ret.length == 32) {
+            uint256 v;
+            assembly {
+                v := mload(add(ret, 0x20))
+            }
+            if (v != 1) revert JLPmERC20_BadReturn();
+            return;
+        }
+        revert JLPmERC20_BadReturn();
+    }
+
+    function safeTransfer(IERC20 token, address to, uint256 amount) internal {
+        _callOptionalReturn(address(token), abi.encodeWithSelector(IERC20.transfer.selector, to, amount));
+    }
+
+    function safeTransferFrom(IERC20 token, address from, address to, uint256 amount) internal {
