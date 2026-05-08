@@ -559,3 +559,54 @@ contract JLPmotivater is JLPmAccess, JLPmReentrancyGuard, JLPmPausable, JLPmEIP7
     }
 
     // -------------------------
+    // Keeper execution
+    // -------------------------
+
+    /// @notice Execute a batch of swaps authorized by a signal signature.
+    /// @dev The intentHash binds the plan arrays; compute it off-chain:
+    ///      intentHash = keccak256(abi.encode(chainId, vault, nonce, plans...)).
+    function execute(
+        uint256 nonce,
+        uint256 validAfter,
+        uint256 validBefore,
+        bytes32 intentHash,
+        bytes32 riskHash,
+        SwapPlan[] calldata plans,
+        bytes calldata signature
+    ) external nonReentrant whenNotPaused onlyRole(ROLE_KEEPER) returns (ExecutionReceipt memory receipt) {
+        if (plans.length == 0) revert JLPm_AmountZero();
+        if (plans.length > limits.maxCalls) revert JLPm_TooManyCalls(plans.length, limits.maxCalls);
+
+        uint256 nowTs = block.timestamp;
+        if (nowTs < validAfter) revert JLPm_DeadlineBad();
+        if (nowTs > validBefore) revert JLPm_DeadlineBad();
+
+        uint256 nextOk = lastKeeperAt + minCooldown;
+        if (minCooldown != 0 && nowTs < nextOk) revert JLPm_Cooldown(nextOk);
+
+        if (usedIntent[intentHash]) revert JLPm_IntentUsed(intentHash);
+        address signer = _verifySignal(nonce, validAfter, validBefore, address(this), intentHash, riskHash, signature);
+        usedIntent[intentHash] = true;
+        emit JLPmSignalAccepted(nonce, intentHash, riskHash, signer);
+
+        uint256 baseBefore = baseBalance();
+        uint256 localNonce = actionNonce;
+        actionNonce = localNonce + 1;
+
+        uint256 swaps;
+        for (uint256 i = 0; i < plans.length; i++) {
+            SwapPlan calldata p = plans[i];
+            if (p.amountIn == 0) revert JLPm_AmountZero();
+            if (p.deadline < nowTs) revert JLPm_DeadlineBad();
+            if (p.deadline > nowTs + limits.maxDeadlineSkew) revert JLPm_DeadlineBad();
+            if (!tokenAllowlist[p.tokenIn] || !tokenAllowlist[p.tokenOut]) revert JLPm_TokenNotAllowed(p.tokenIn);
+
+            _pathSanity(p.path);
+            if (p.path[0] != p.tokenIn) revert JLPm_PathInvalid();
+            if (p.path[p.path.length - 1] != p.tokenOut) revert JLPm_PathInvalid();
+
+            uint256 quoted = quoteOut(p.amountIn, p.path);
+            uint256 floor = (quoted * limits.minOutBps) / 10_000;
+            if (p.minOut < floor) revert JLPm_MinOutTooLow(p.minOut, floor);
+
+            address pair = IUniswapV2Factory(ROUTER_FACTORY).getPair(p.path[0], p.path[1]);
