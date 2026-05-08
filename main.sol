@@ -406,3 +406,54 @@ contract JLPmotivater is JLPmAccess, JLPmReentrancyGuard, JLPmPausable, JLPmEIP7
 
         tokenAllowlist[baseAsset] = true;
         emit JLPmTokenAllowlistSet(baseAsset, true);
+
+        // Pre-approve router for base asset; additional tokens are approved on-demand by admin/risk.
+        BASE_ASSET.safeApprove(router, type(uint256).max);
+        actionNonce = 1;
+        lastKeeperAt = uint256(block.timestamp).clamp(1, type(uint256).max);
+    }
+
+    // -------------------------
+    // Admin / roles
+    // -------------------------
+
+    function grantRole(bytes32 r, address who) external onlyRole(ROLE_ADMIN) {
+        JLPmAddress.requireNotZero(who);
+        _grantRole(r, who);
+    }
+
+    function revokeRole(bytes32 r, address who) external onlyRole(ROLE_ADMIN) {
+        JLPmAddress.requireNotZero(who);
+        _revokeRole(r, who);
+    }
+
+    function pause() external onlyRole(ROLE_ADMIN) {
+        _pause();
+        emit JLPmPausedByRole(msg.sender);
+    }
+
+    function unpause() external onlyRole(ROLE_ADMIN) {
+        _unpause();
+        emit JLPmUnpausedByRole(msg.sender);
+    }
+
+    function setConfig(uint256 slippageBps, uint256 routeLen, uint256 cooldown, uint256 softImpactBps)
+        external
+        onlyRole(ROLE_RISK)
+    {
+        // conservative bounds
+        maxSlippageBps = JLPmMath.clamp(slippageBps, 1, 1500);
+        maxRouteLen = JLPmMath.clamp(routeLen, 2, 7);
+        minCooldown = JLPmMath.clamp(cooldown, 0, 12 hours);
+        maxPriceImpactBpsSoft = JLPmMath.clamp(softImpactBps, 0, 5000);
+        emit JLPmConfigUpdated(maxSlippageBps, maxRouteLen, minCooldown, maxPriceImpactBpsSoft);
+    }
+
+    function setLimits(Limits calldata next) external onlyRole(ROLE_RISK) {
+        require(next.maxDeadlineSkew >= 60 && next.maxDeadlineSkew <= 3600, "JLPm:skew");
+        require(next.minOutBps >= 9000 && next.minOutBps <= 9999, "JLPm:minOut");
+        require(next.maxHops >= 2 && next.maxHops <= 8, "JLPm:hops");
+        require(next.maxCalls >= 1 && next.maxCalls <= 12, "JLPm:calls");
+        require(next.minDelay <= 24 hours, "JLPm:delay");
+        limits = next;
+        emit JLPmLimitsUpdated(next);
