@@ -202,3 +202,54 @@ library JLPmECDSA {
     error JLPmECDSA_InvalidV();
 
     function recover(bytes32 digest, bytes memory signature) internal pure returns (address) {
+        if (signature.length != 65) revert JLPmECDSA_InvalidSignature();
+        bytes32 r;
+        bytes32 s;
+        uint8 v;
+        assembly {
+            r := mload(add(signature, 0x20))
+            s := mload(add(signature, 0x40))
+            v := byte(0, mload(add(signature, 0x60)))
+        }
+
+        if (uint256(s) > 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0) {
+            revert JLPmECDSA_InvalidS();
+        }
+        if (v != 27 && v != 28) revert JLPmECDSA_InvalidV();
+
+        address signer = ecrecover(digest, v, r, s);
+        if (signer == address(0)) revert JLPmECDSA_InvalidSignature();
+        return signer;
+    }
+}
+
+abstract contract JLPmEIP712 {
+    bytes32 private immutable _domainSeparator;
+    uint256 private immutable _domainChainId;
+    bytes32 private immutable _nameHash;
+    bytes32 private immutable _versionHash;
+
+    // keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")
+    bytes32 private constant _EIP712_DOMAIN_TYPEHASH =
+        0x8B73C3C69BB8FE3D512ECC4CF759CC79239F7B179B0FFACAA9A75D522B39400F;
+
+    constructor(string memory name, string memory version) {
+        _nameHash = keccak256(bytes(name));
+        _versionHash = keccak256(bytes(version));
+        _domainChainId = block.chainid;
+        _domainSeparator = _buildDomainSeparator(_EIP712_DOMAIN_TYPEHASH, _nameHash, _versionHash);
+    }
+
+    function _buildDomainSeparator(bytes32 typeHash, bytes32 nameHash, bytes32 versionHash)
+        private
+        view
+        returns (bytes32)
+    {
+        return keccak256(abi.encode(typeHash, nameHash, versionHash, block.chainid, address(this)));
+    }
+
+    function domainSeparator() public view returns (bytes32) {
+        if (block.chainid == _domainChainId) return _domainSeparator;
+        return _buildDomainSeparator(_EIP712_DOMAIN_TYPEHASH, _nameHash, _versionHash);
+    }
+
