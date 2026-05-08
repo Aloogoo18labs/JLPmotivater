@@ -457,3 +457,54 @@ contract JLPmotivater is JLPmAccess, JLPmReentrancyGuard, JLPmPausable, JLPmEIP7
         require(next.minDelay <= 24 hours, "JLPm:delay");
         limits = next;
         emit JLPmLimitsUpdated(next);
+    }
+
+    function setTokenAllowlist(address token, bool allowed) external onlyRole(ROLE_RISK) {
+        JLPmAddress.requireNotZero(token);
+        tokenAllowlist[token] = allowed;
+        emit JLPmTokenAllowlistSet(token, allowed);
+    }
+
+    function approveToken(address token, uint256 amount) external onlyRole(ROLE_RISK) {
+        if (!tokenAllowlist[token]) revert JLPm_TokenNotAllowed(token);
+        IERC20(token).safeApprove(address(ROUTER), 0);
+        IERC20(token).safeApprove(address(ROUTER), amount);
+    }
+
+    // -------------------------
+    // Vault operations
+    // -------------------------
+
+    function depositBase(uint256 amount) external nonReentrant whenNotPaused {
+        if (amount == 0) revert JLPm_AmountZero();
+        BASE_ASSET.safeTransferFrom(msg.sender, address(this), amount);
+    }
+
+    function sweep(address token, address to, uint256 amount) external nonReentrant onlyRole(ROLE_ADMIN) {
+        JLPmAddress.requireNotZero(token);
+        JLPmAddress.requireNotZero(to);
+        if (amount == 0) revert JLPm_AmountZero();
+        IERC20(token).safeTransfer(to, amount);
+        emit JLPmSweep(token, to, amount);
+    }
+
+    function baseBalance() public view returns (uint256) {
+        return BASE_ASSET.balanceOf(address(this));
+    }
+
+    // -------------------------
+    // Signal verification
+    // -------------------------
+
+    function signalDigest(
+        uint256 nonce,
+        uint256 validAfter,
+        uint256 validBefore,
+        address executor,
+        bytes32 intentHash,
+        bytes32 riskHash
+    ) public view returns (bytes32) {
+        bytes32 structHash = keccak256(abi.encode(SIGNAL_TYPEHASH, nonce, validAfter, validBefore, executor, intentHash, riskHash));
+        return _hashTypedData(structHash);
+    }
+
